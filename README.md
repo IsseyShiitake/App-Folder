@@ -1,8 +1,8 @@
-# App Folder — macOS-style app folders for the KDE Plasma panel
+# App Folder — MacOS-style app folders for the KDE Plasma panel
 
 ![App Folder demo](assets/sample.gif)
 
-Group apps into spring-loaded folder popups. Click the folder icon and a
+Group apps into spring-loaded folder popups, click the folder icon and a
 panel-styled popup opens right above it; click an app to launch, drag icons
 to reorder, right-click for settings.
 
@@ -12,8 +12,9 @@ to reorder, right-click for settings.
 
 ## Features
 
-- **Native Plasma widget**: add it N times from *Add widgets*, one per
-  folder, each with its own config — no daemons, no taskbar pins
+- **Native Plasma widget**: add it X times from: show panel configuration → add or
+  manage widgets → *App Folder*, one per folder, each with its own config —
+  no daemons, no taskbar pins
 - **Shell-owned popup**: anchoring, theme, blur, and outside-click behavior
   come from Plasma itself
 - **Reorder by dragging** any icon onto another (release to drop, drag
@@ -29,8 +30,10 @@ to reorder, right-click for settings.
   dragging the popup edges; the frame always stays a whole number of
   icon tiles (1–15 per axis) and snaps to the closest multiple on
   release. Off by default; with a picked size, stray drags spring back
-- **Add apps** via file picker (reliable), or drag `.desktop` files in
-  when the source needs no extra click; right-click an app to remove it
+- **Add apps**: right click in folder →  check "keep open" then drag
+  applications from the launcher into the folder, alternatively from the
+  app picker: right click into app folder → "Add app..."; right-click an app
+  to remove it
 - **Placement that behaves like Plasma**: the popup centers on its
   panel icon; when the folder is wider than the remaining panel space
   it clamps inside the panel exactly like stock Plasma popups
@@ -57,7 +60,8 @@ cd app-folder
 
 Then add folders to your panel:
 
-1. Right-click the panel (or desktop) → *Add widgets…*
+1. Right-click the panel (or desktop) → *Show Panel Configuration* → 
+   *Add or Manage Widgets* → *Add widgets…*
 2. Search **App Folder** → **Add** (repeat for each folder you want)
 3. Click the folder to open its popup, then right-click a tile (or the
    empty grid) → *Add app…* to fill it — the closed widget's right-click
@@ -114,7 +118,7 @@ requantized to whole tiles on open.
   `kpackagetool6 -u plasmoid -t Plasma/Applet`, then restart plasmashell
   (`plasmashell --replace &`) or log out/in.
 - **A drop does nothing**: clicking the source window dismisses the popup
-  before the drop lands — use the *Add app…* picker instead (always works).
+  before the drop lands — use the *Add app…* picker instead (always w→orks).
 - **An added entry never made a tile**: entries are validated at add time
   (unreadable or bare `name.desktop` paths are skipped). A file deleted
   AFTER it was added keeps its tile but will not launch — check
