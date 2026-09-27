@@ -1,6 +1,6 @@
 # App Folder — MacOS-style app folders for the KDE Plasma panel
 If a bug occurs or you'd like to suggest something/request a new function, feel free to reach!
-Hope you engjoy this minimal ergonomic app. 
+Hope you enjoy this minimal ergonomic app. 
 
 ![App Folder demo](assets/sample.gif)
 
