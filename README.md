@@ -50,7 +50,7 @@ to reorder, right-click for settings.
 ## Install
 
 ```sh
-git clone <your-repo-url> app-folder
+git clone https://github.com/IsseyShiitake/App-Folder.git app-folder
 cd app-folder
 ./install.sh
 ```
