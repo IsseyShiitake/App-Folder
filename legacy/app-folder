@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""appfolder — macOS-dock-style app folder popup for the KDE Plasma panel.
+
+Usage: app-folder <folder-name>
+
+Resident popup daemon (Wayland layer-shell, LayerTop) that opens above the
+bottom panel, horizontally centered over the clicked taskbar icon (cursor
+captured per open via a warm KWin-script helper, ~15 ms), styled with the
+Plasma theme background frame. 3×3 grid of full-size taskbar icons;
+click launches, drag-and-drop of .desktop files adds, right-click removes,
+click anywhere else hides. Invoking the binary while the daemon lives
+(clicking the pinned taskbar icon again) toggles it. The daemon quits after
+APPFOLDER_IDLE_QUIT seconds hidden (default 15 min); the next click
+cold-starts it again.
+
+First click after login pays the cold-start cost (~0.8 s: interpreter +
+Qt/QML); every later open re-anchors and shows in ~50 ms.
+"""
+import fcntl
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+APP_ID = "org.local.appfolder"
+HERE = Path(__file__).resolve().parent
+QML_MAIN = HERE / "AppFolderWindow.qml"
+CONFIG_DIR = Path(os.environ.get("APPFOLDER_CONFIG_DIR", Path.home() / ".config/app-folder"))
+EXTRA_IMPORT_PATHS = ["/usr/lib64/qt6/qml"]
+
+PANEL_THICKNESS = int(os.environ.get("APPFOLDER_PANEL_THICKNESS", 55))
+PANEL_FLOAT_MARGIN = int(os.environ.get("APPFOLDER_PANEL_FLOAT_MARGIN", 8))
+GAP = int(os.environ.get("APPFOLDER_GAP", 6))
+ICON_SIZE = int(os.environ.get("APPFOLDER_ICON_SIZE", "44"))
+IDLE_QUIT_S = int(os.environ.get("APPFOLDER_IDLE_QUIT", "900"))
+HOLD = os.environ.get("APPFOLDER_HOLD", "0") == "1"
+
+
+def load_folder(name: str) -> list[dict]:
+    import json  # deferred: keeps the toggle fast path (~40 ms) lean
+    p = CONFIG_DIR / f"{name}.json"
+    if not p.exists():
+        return []
+    try:
+        raw = json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    apps = raw.get("apps", []) if isinstance(raw, dict) else raw
+    return [
+        {"desktop": a["desktop"], "name": a.get("name", ""), "icon": a.get("icon", "")}
+        for a in apps
+        if isinstance(a, dict) and a.get("desktop")
+    ]
+
+
+def read_pid(pid_path: Path) -> int | None:
+    try:
+        return int(pid_path.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def main() -> int:
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print("usage: app-folder <folder-name> [--settings]", file=sys.stderr)
+        return 2
+    folder = sys.argv[1]
+    want_settings = "--settings" in sys.argv[2:]
+    run_dir = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+
+    # --- single instance: a second click toggles the resident daemon -------
+    # fcntl lock: auto-released if the daemon dies, so no stale locks ever.
+    # This path imports no Qt → toggle signal costs one python startup (~40 ms).
+    lock_path = run_dir / f"appfolder-{folder}.lock"
+    pid_path = run_dir / (lock_path.name + ".pid")
+    cmd_path = run_dir / f"appfolder-{folder}.cmd"
+    lock_fd = open(lock_path, "a+b")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_fd.close()
+        if want_settings:
+            # Tell the live daemon to land on the settings page (consumed
+            # in poll before the toggle acts; ordering file-then-signal).
+            try:
+                cmd_path.write_text("settings\n")
+            except OSError:
+                pass
+        pid = read_pid(pid_path)
+        if pid:
+            try:
+                os.kill(pid, signal.SIGUSR1)
+                return 0
+            except OSError:
+                pass
+        # Lock held but daemon unreachable (wedged pid file): retry once
+        # after a beat, then give up rather than risk a second daemon.
+        time.sleep(0.2)
+        pid = read_pid(pid_path)
+        if pid:
+            try:
+                os.kill(pid, signal.SIGUSR1)
+                return 0
+            except OSError:
+                pass
+        print(f"appfolder: daemon for {folder!r} unreachable", file=sys.stderr)
+        return 1
+    pid_path.write_text(str(os.getpid()))
+
+    # Daemon branch: Qt imports happen only here, after the toggle fast path.
+    from PySide6.QtCore import QTimer, QUrl
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtQml import QQmlApplicationEngine
+
+    sys.path.insert(0, str(HERE))
+    from bridge import PythonBridge  # noqa: E402
+    from cursor import Holder  # noqa: E402
+
+    flags = {"toggle": False, "quit": False}
+    signal.signal(signal.SIGUSR1, lambda *_: flags.__setitem__("toggle", True))
+    signal.signal(signal.SIGTERM, lambda *_: flags.__setitem__("quit", True))
+
+    # Start the cursor helper NOW: its ~300 ms python+dbus startup overlaps
+    # our own QGuiApplication/QML startup below, so the first open only
+    # waits ~10 ms for the already-warm helper.
+    holder = Holder()
+    holder.start()
+
+    app = QGuiApplication([APP_ID, f"--name={folder}"])
+    app.setDesktopFileName(APP_ID)
+
+    engine = QQmlApplicationEngine()
+    for p in EXTRA_IMPORT_PATHS:
+        engine.addImportPath(p)
+
+    ctx = engine.rootContext()
+    ctx.setContextProperty("pythonBridge", PythonBridge(app))
+    ctx.setContextProperty("initialApps", load_folder(folder))
+    ctx.setContextProperty("folderName", folder)
+    ctx.setContextProperty("configDir", str(CONFIG_DIR))
+    ctx.setContextProperty(
+        "popupGeometry",
+        {
+            "panelThickness": PANEL_THICKNESS,
+            "floatMargin": PANEL_FLOAT_MARGIN,
+            "gap": GAP,
+            "iconSize": ICON_SIZE,
+            "cursorX": -1,
+            "cursorY": -1,
+            "holdForTest": HOLD,
+        },
+    )
+
+    engine.load(QUrl.fromLocalFile(str(QML_MAIN)))
+    if not engine.rootObjects():
+        print("appfolder: failed to load QML", file=sys.stderr)
+        holder.stop()
+        return 1
+    win = engine.rootObjects()[0]
+
+    desk_iface = None
+    try:
+        from PySide6.QtDBus import QDBusConnection, QDBusInterface
+
+        desk_iface = QDBusInterface(
+            "org.kde.KWin", "/VirtualDesktopManager",
+            "org.freedesktop.DBus.Properties",
+            QDBusConnection.sessionBus(),
+        )
+    except Exception:
+        desk_iface = None
+
+    def current_desktop() -> str | None:
+        if desk_iface is None:
+            return None
+        try:
+            reply = desk_iface.call(
+                "Get", "org.kde.KWin.VirtualDesktopManager", "current")
+            args = reply.arguments()
+            if not args:
+                return None
+            v = args[0]
+            return str(v.variant() if hasattr(v, "variant") else v)
+        except Exception:
+            return None
+
+    # --- host-panel style mirror -------------------------------------------
+    # The popup must look like the panel holding the folder icon: same SVG
+    # (QML stacks translucent + solid exactly like Panel.qml) at the same
+    # opacity. OpacityMode enum (PanelView::OpacityMode, moc order):
+    # 0 Adaptive (opaque only while a window touches the panel),
+    # 1 Opaque, 2 Translucent. Default: Translucent.
+    _PANEL_RC = Path.home() / ".config/plasmashellrc"
+    _APPLETS_RC = Path.home() / ".config/plasma-org.kde.plasma.desktop-appletsrc"
+
+    def bottom_panel_id() -> str | None:
+        """Containment id of the panel holding the task manager."""
+        try:
+            import configparser
+            c = configparser.ConfigParser()
+            c.read(_APPLETS_RC)
+            for sec in c.sections():
+                parts = sec.split("][")
+                if (len(parts) == 4 and parts[0] == "Containments"
+                        and parts[2] == "Applets"):
+                    try:
+                        if c[sec].get("plugin") == "org.kde.plasma.icontasks":
+                            return parts[1]
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return None
+
+    def panel_opacity_mode() -> int:
+        try:
+            import configparser
+            c = configparser.ConfigParser()
+            c.read(_PANEL_RC)
+            pid = bottom_panel_id()
+            if pid is not None:
+                for sec in c.sections():
+                    if sec == f"PlasmaViews][Panel {pid}":
+                        return int(c[sec].get("panelOpacity", "2"))
+            for sec in c.sections():
+                if "Panel" in sec and c[sec].get("panelOpacity") is not None:
+                    return int(c[sec].get("panelOpacity"))
+        except (ValueError, KeyError, OSError):
+            pass
+        return 2
+
+    def panel_touched() -> bool:
+        """True when a visible window overlaps the bottom panel zone."""
+        try:
+            h = app.primaryScreen().size().height()
+        except Exception:
+            return False
+        zone_top = h - (PANEL_THICKNESS + 2 * PANEL_FLOAT_MARGIN)
+        desk = state.get("desktop")  # state exists by call time (show/poll)
+        js = (
+            "var out=[];var ws=workspace.windowList();"
+            "for(var i=0;i<ws.length;i++){var w=ws[i];var g=w.frameGeometry;"
+            "var ids=[];for(var k=0;k<w.desktops.length;k++){ids.push(w.desktops[k].id);}"
+            "out.push((w.minimized?1:0)+','+(w.desktopWindow?1:0)+','"
+            "+(w.onAllDesktops?1:0)+','+(w.dock?1:0)+'|'+ids.join('+')+'|'"
+            "+g.x+','+g.y+','+g.width+','+g.height);}"
+            f"callDBus('{holder.bus}','/wd','{holder.bus}','Dump',out.join(';'));"
+        )
+        try:
+            txt = holder.probe(js)
+        except Exception:
+            return False
+        if not txt:
+            return False
+        for rec in txt.split(";"):
+            try:
+                fl, ids, geom = rec.split("|")
+                mini, isdesk, onall, isdock = (int(v) for v in fl.split(","))
+                x, y, w, hh = (float(v) for v in geom.split(","))
+            except (ValueError, AttributeError):
+                continue
+            if mini or isdesk or isdock:
+                continue
+            if not onall and ids:
+                if not desk or desk not in ids.split("+"):
+                    continue
+            if y + hh >= zone_top:
+                return True
+        return False
+
+    panel = {"mode": None, "mtime": 0.0, "solid": 0.0}
+
+    def panel_refresh(force_touch: bool = False) -> None:
+        """Re-read opacity mode (config mtime) + touch; push panelSolidity."""
+        def note(msg: str) -> None:
+            # Transition log, gated by APPFOLDER_DEBUG since S55 (was
+            # unconditional to a fixed /tmp path — any install wrote there
+            # on every run). Same =1 semantic as bridge.debugLog.
+            if os.environ.get("APPFOLDER_DEBUG") != "1":
+                return
+            try:
+                with open("/tmp/appfolder-debug.log", "a") as f:
+                    f.write(f"{time.strftime('%H:%M:%S')} [{folder}] {msg}\n")
+            except OSError:
+                pass
+        try:
+            mt = _PANEL_RC.stat().st_mtime
+        except OSError:
+            mt = 0.0
+        if mt != panel["mtime"] or panel["mode"] is None:
+            panel["mtime"] = mt
+            panel["mode"] = panel_opacity_mode()
+            note(f"panel mode={panel['mode']}")
+        mode = panel["mode"]
+        if mode == 1:
+            solid = 1.0
+            why = "opaque"
+        elif mode == 0:
+            if not (force_touch or is_visible()):
+                return  # hidden: refresh on next show instead of polling KWin
+            touched = panel_touched()
+            solid = 1.0 if touched else 0.0
+            why = f"adaptive touched={touched}"
+        else:
+            solid = 0.0
+            why = "translucent"
+        if solid != panel["solid"]:
+            note(f"solidity {panel['solid']} -> {solid} ({why})")
+            panel["solid"] = solid
+            try:
+                win.setProperty("panelSolidity", float(solid))
+            except Exception:
+                pass
+
+    state = {
+        "desktop": current_desktop(),
+        "hidden_since": time.monotonic(),
+        "tick": 0,
+        "last_anchor": None,  # last good cursor x: reuse on query misses
+    }
+
+    def debug_log(msg: str) -> None:
+        if os.environ.get("APPFOLDER_DEBUG") == "1":
+            try:
+                with open("/tmp/appfolder-debug.log", "a") as f:
+                    f.write(f"{time.strftime('%H:%M:%S')} [{folder}] {msg}\n")
+            except OSError:
+                pass
+
+    def is_visible() -> bool:
+        try:
+            return bool(win.property("visible"))
+        except Exception:
+            return False
+
+    def open_settings() -> None:
+        try:
+            win.openSettings()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+    def show(open_settings_here: bool = False) -> None:
+        ctx.setContextProperty("initialApps", load_folder(folder))
+        t0 = time.monotonic()
+        x, _y = holder.query()
+        dt_ms = (time.monotonic() - t0) * 1000.0
+        if x >= 0:
+            state["last_anchor"] = float(x)
+            anchor = float(x)
+            why = "query"
+        elif state["last_anchor"] is not None:
+            # Miss: reopen where it worked last time (same icon) instead of
+            # screen-center — strictly closer to the clicked icon.
+            anchor = state["last_anchor"]
+            why = "last-good"
+        else:
+            anchor = -1.0
+            why = "center"
+        debug_log(f"anchor x={x:.0f} -> {anchor:.0f} ({why}) in {dt_ms:.0f}ms")
+        panel_refresh(force_touch=True)  # correct bg before first paint
+        try:
+            win.showAt(anchor)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+        if open_settings_here:
+            open_settings()
+        state["desktop"] = current_desktop()
+
+    def hide() -> None:
+        try:
+            win.setProperty("visible", False)
+        except Exception:
+            pass
+        state["hidden_since"] = time.monotonic()
+
+    show(want_settings)  # first open: hidden QML → anchor → first paint
+
+    def consume_cmd() -> bool:
+        """Settings request from a toggling second process (one-shot)."""
+        try:
+            if cmd_path.exists() and cmd_path.read_text().strip() == "settings":
+                return True
+        except OSError:
+            pass
+        return False
+
+    def clear_cmd() -> None:
+        try:
+            cmd_path.unlink()
+        except OSError:
+            pass
+
+    def poll() -> None:
+        if flags["quit"]:
+            holder.stop()
+            try:
+                pid_path.unlink()
+            except OSError:
+                pass
+            lock_fd.close()
+            app.quit()
+            return
+        if flags["toggle"]:
+            flags["toggle"] = False
+            want = consume_cmd()
+            clear_cmd()
+            if is_visible() and not want:
+                hide()
+            else:
+                show(want)
+            state["hidden_since"] = time.monotonic()
+        state["tick"] += 1
+        if state["tick"] % 130 == 0:
+            panel_refresh()  # config change + Adaptive touch, ~every 2 s
+        if state["tick"] % 14 == 0 and desk_iface is not None:
+            now = current_desktop()
+            if (now is not None and state["desktop"] is not None
+                    and now != state["desktop"]):
+                state["desktop"] = now
+                if is_visible():
+                    hide()  # macOS behavior: folders close on space switch
+        if (not HOLD and IDLE_QUIT_S > 0 and not is_visible()
+                and time.monotonic() - state["hidden_since"] > IDLE_QUIT_S):
+            holder.stop()
+            try:
+                pid_path.unlink()
+            except OSError:
+                pass
+            lock_fd.close()
+            app.quit()
+
+    poller = QTimer()
+    # 15 ms: most of the click→cursor-sample lag was spent waiting here.
+    poller.setInterval(15)
+    poller.timeout.connect(poll)
+    poller.start()
+    ret = app.exec()
+    lock_fd.close()
+    return ret
+
+
+if __name__ == "__main__":
+    sys.exit(main())

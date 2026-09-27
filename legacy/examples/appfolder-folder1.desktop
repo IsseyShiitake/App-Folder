@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=App Folder (Empty)
+GenericName=Application Folder
+Comment=Empty app folder: pin to taskbar, click to open, drag apps in
+Exec=@APPDIR@/app-folder folder1
+TryExec=@APPDIR@/app-folder
+Icon=folder
+Terminal=false
+Categories=Utility;Core;
+Keywords=folder;apps;launcher;popup;
+StartupNotify=false
+X-KDE-StartupNotify=false
+X-KDE-Wayland-Preload=true
+
+Actions=Settings;
+
+[Desktop Action Settings]
+Name=Folder settings…
+Exec=@APPDIR@/app-folder folder1 --settings

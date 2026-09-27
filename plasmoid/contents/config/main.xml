@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <!-- Per-instance storage. The grid/settings UI reads and writes these;
+       the auto-generated config page is intentionally NOT used (all editing
+       happens inside the folder popup, like the standalone app). -->
+  <group name="General">
+    <entry name="folderApps" type="String">
+      <default>[]</default>
+    </entry>
+    <entry name="folderIcon" type="String">
+      <default>folder</default>
+    </entry>
+    <entry name="iconScale" type="Int">
+      <default>6</default>
+    </entry>
+    <entry name="iconPad" type="Int">
+      <!-- Effective floor 3: the shell dialog chrome adds a fixed ~8px
+           per side to the frame gap, so lower values make the border
+           gap exceed the icon-to-icon gap. Stored values below 3 clamp
+           up on load. -->
+      <default>6</default>
+    </entry>
+    <entry name="compactScale" type="Int">
+      <default>6</default>
+    </entry>
+    <entry name="themeAdapt" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="bgColor" type="String">
+      <default></default>
+    </entry>
+    <entry name="bgOpacity" type="Double">
+      <default>0.95</default>
+    </entry>
+    <entry name="cornerScale" type="Int">
+      <default>6</default>
+    </entry>
+    <entry name="outlineScale" type="Int">
+      <default>1</default>
+    </entry>
+    <!-- Dialog chrome (window minus grid), captured at collapse so the
+         pre-map tile-exact open write works even on the first open of a
+         plasmashell session. 0 = never captured. -->
+    <entry name="chromeW" type="Int">
+      <default>0</default>
+    </entry>
+    <entry name="chromeH" type="Int">
+      <default>0</default>
+    </entry>
+    <!-- Checked-grid size picker (settings): committed columns/rows of
+         tiles. 0 = never picked (dynamic sizing keeps deriving the frame
+         from the live window). -->
+    <entry name="folderCols" type="Int">
+      <default>0</default>
+    </entry>
+    <entry name="folderRows" type="Int">
+      <default>0</default>
+    </entry>
+    <!-- "Dynamic Resizing (beta)": border-drag resize + snap (the
+         pre-picker method). DEFAULT OFF for new folders — the checked
+         grid picker is the primary size control; once a size is picked,
+         stray border drags spring back to it. Existing folders keep
+         their stored value. -->
+    <entry name="dynamicResize" type="Bool">
+      <default>false</default>
+    </entry>
+    <!-- Hook-at-map open intent (design: log.md durable background §3):
+         published at the
+         expand flip so the shared KWin hook can move a uniquely
+         size-matching, freshly mapped popup onto afMapX/afMapY inside
+         workspace.windowAdded — before the first presented frame (the M1
+         open-teleport fix). afMapAt = publish epoch-ms as a STRING (epoch
+         ms overflows KConfig Int); "0" = no intent; the hook expires
+         intents older than 2.5s. afMapY is only written on VERTICAL
+         panels (the clamp axis there); -1 = no intent on that axis.
+         afMapW/H = the expected total window span at map. -->
+    <entry name="afMapX" type="Int">
+      <default>-1</default>
+    </entry>
+    <entry name="afMapY" type="Int">
+      <default>-1</default>
+    </entry>
+    <entry name="afMapW" type="Int">
+      <default>0</default>
+    </entry>
+    <entry name="afMapH" type="Int">
+      <default>0</default>
+    </entry>
+    <entry name="afMapAt" type="String">
+      <default>0</default>
+    </entry>
+  </group>
+</kcfg>

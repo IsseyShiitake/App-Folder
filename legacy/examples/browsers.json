@@ -1,0 +1,34 @@
+{
+  "apps": [
+    {
+      "desktop": "/usr/share/applications/org.mozilla.firefox.desktop",
+      "name": "Mozilla Firefox",
+      "icon": "firefox"
+    },
+    {
+      "desktop": "/usr/share/applications/org.kde.dolphin.desktop",
+      "name": "Dolphin",
+      "icon": "system-file-manager"
+    },
+    {
+      "desktop": "/usr/share/applications/org.kde.konsole.desktop",
+      "name": "Konsole",
+      "icon": "konsole"
+    },
+    {
+      "desktop": "/usr/share/applications/vlc.desktop",
+      "name": "VLC",
+      "icon": "vlc"
+    },
+    {
+      "desktop": "/usr/share/applications/systemsettings.desktop",
+      "name": "Settings",
+      "icon": "systemsettings"
+    },
+    {
+      "desktop": "/usr/share/applications/org.kde.gwenview.desktop",
+      "name": "Gwenview",
+      "icon": "gwenview"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "IsseyShiitake"
+            }
+        ],
+        "Category": "Utilities",
+        "Description": "macOS-style app folders for the Plasma panel",
+        "EnabledByDefault": false,
+        "Icon": "folder",
+        "Id": "appfolder",
+        "License": "MIT",
+        "Name": "App Folder",
+        "Version": "0.1"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API": "declarativeappletscript",
+    "X-Plasma-API-Minimum-Version": "6.4",
+    "X-Plasma-MainScript": "ui/main.qml"
+}

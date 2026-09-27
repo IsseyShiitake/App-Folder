@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# local tooling caches that must never reach a published tree
+.mimosa/
+.v2c/
+.video_agent/

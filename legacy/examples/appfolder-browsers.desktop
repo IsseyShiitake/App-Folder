@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=App Folder
+Comment=App folder: open the browser collection popup
+Exec=@APPDIR@/app-folder browsers
+TryExec=@APPDIR@/app-folder
+Icon=folder
+Terminal=false
+Categories=Utility;
+Keywords=folder;browsers;popup;
+StartupNotify=false
+X-KDE-StartupNotify=false
+X-KDE-Wayland-Preload=true
+
+Actions=Settings;
+
+[Desktop Action Settings]
+Name=Folder settings…
+Exec=@APPDIR@/app-folder browsers --settings
